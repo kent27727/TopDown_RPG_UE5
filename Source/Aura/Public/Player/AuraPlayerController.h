@@ -12,12 +12,15 @@
 class UInputMappingContext;
 class UInputAction;
 class IEnemyInterface;
+class UAuraInputConfig;
+class USplineComponent;
+
 struct FInputActionValue;
 UCLASS()
 class AURA_API AAuraPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-
+	
 
 public:
 	AAuraPlayerController();
@@ -34,9 +37,29 @@ private:
 	UPROPERTY(EditAnywhere, Category = "Input")
 	TObjectPtr<UInputAction> MoveAction;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Input")
+	TObjectPtr<UAuraInputConfig> InputConfig;
+
 	void Move(const FInputActionValue& InputActionValue);
 
 	void CursorTrace();
+	void AutoRun();
+	FHitResult CursorHit;
+	
+	UFUNCTION()
+	void AbilityInputTagPressed();
+
+	UFUNCTION()
+	void AbilityInputTagReleased();
+
+	UFUNCTION()
+	void AbilityInputTagHeld();
+
+	FVector CachedDestination = FVector::ZeroVector;
+	bool bAutoRunning = false;
+
+	UPROPERTY(VisibleAnywhere)
+	TObjectPtr<USplineComponent> Spline;
 
 	TScriptInterface<IEnemyInterface> LastActor;
 	TScriptInterface<IEnemyInterface> ThisActor;

@@ -4,12 +4,17 @@
 #include "Player/AuraPlayerController.h"
 #include "EnhancedInputSubsystems.h"
 #include "Interaction/EnemyInterface.h"
-#include "EnhancedInputComponent.h"
+#include "Components/SplineComponent.h"
+#include "NavigationSystem.h"
+#include "NavigationPath.h"
+
+#include "Input/AuraInputComponent.h"
 
 
 AAuraPlayerController::AAuraPlayerController()
 {
 	bReplicates = true;
+	Spline = CreateDefaultSubobject<USplineComponent>("Spline");
 }
 
 void AAuraPlayerController::PlayerTick(float DeltaTime)
@@ -17,12 +22,41 @@ void AAuraPlayerController::PlayerTick(float DeltaTime)
 	Super::PlayerTick(DeltaTime);
 
 	CursorTrace();
+	AutoRun();
+}
+
+
+void AAuraPlayerController::AutoRun() 
+{
+
+	if (!bAutoRunning) return;
+
+	if (APawn* ControlledPawn=GetPawn())
+	{
+		const FVector LocationOnSpline = Spline->FindLocationClosestToWorldLocation(ControlledPawn->GetActorLocation(), ESplineCoordinateSpace::World);
+		const FVector Direction = Spline->FindDirectionClosestToWorldLocation(LocationOnSpline, ESplineCoordinateSpace::World);
+			ControlledPawn->AddMovementInput(Direction);
+		const float DistanceToDestination = (LocationOnSpline - CachedDestination).Length();
+		if (DistanceToDestination<=100.f)
+		{
+			bAutoRunning = false;
+		}
+	}
+
+
+	/*if (APawn* ControlledPawn=GetPawn())
+	{
+
+		const FVector WorldDirection = (CachedDestination - ControlledPawn->GetActorLocation()).GetSafeNormal();
+		ControlledPawn->AddMovementInput(WorldDirection);
+	}*/
 }
 
 void AAuraPlayerController::CursorTrace()
 {
-	FHitResult CursorHit;
 	GetHitResultUnderCursor(ECC_Visibility, false, CursorHit);
+	const ECollisionChannel TraceChannel = ECC_Visibility;
+	GetHitResultUnderCursor(TraceChannel, false, CursorHit);
 	if (!CursorHit.bBlockingHit)
 		return;
 
@@ -82,10 +116,14 @@ void AAuraPlayerController::CursorTrace()
 
 }
 
+
+
 void AAuraPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 	check(AuraContext);
+
+
 
 	UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer());
 	check(Subsystem);
@@ -103,9 +141,11 @@ void AAuraPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	UEnhancedInputComponent* EnhancedInputComponent = CastChecked< UEnhancedInputComponent>(InputComponent);
+	UAuraInputComponent* AuraInputComponent = CastChecked< UAuraInputComponent>(InputComponent);
 
-	EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AAuraPlayerController::Move);
+	AuraInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AAuraPlayerController::Move);
+	AuraInputComponent->BindAbilityActions(InputConfig, this, &ThisClass::AbilityInputTagPressed, &ThisClass::AbilityInputTagReleased, &ThisClass::AbilityInputTagHeld);
+
 }
 
 void AAuraPlayerController::Move(const FInputActionValue& InputActionValue)
@@ -117,11 +157,48 @@ void AAuraPlayerController::Move(const FInputActionValue& InputActionValue)
 	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 	const FVector RightDirection= FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-
 	if (APawn* ControlledPawn=GetPawn<APawn>())
 	{
 		ControlledPawn->AddMovementInput(ForwardDirection,InputAxisVector.Y);
 		ControlledPawn->AddMovementInput(RightDirection, InputAxisVector.X);
+	}
+}
+
+void AAuraPlayerController::AbilityInputTagPressed()
+{
+	CachedDestination = CursorHit.ImpactPoint;
+	bAutoRunning = false;
+
+}
+
+void AAuraPlayerController::AbilityInputTagReleased()
+{
+
+	if (UNavigationPath* NavPath = UNavigationSystemV1::FindPathToLocationSynchronously(this, GetPawn()->GetActorLocation(), CachedDestination))
+	{
+		Spline->ClearSplinePoints();
+		for (const FVector& PointLoc : NavPath->PathPoints)
+		{
+			Spline->AddSplinePoint(PointLoc, ESplineCoordinateSpace::World);
+		}
+		if (NavPath->PathPoints.Num() > 0)
+		{
+			CachedDestination = NavPath->PathPoints[NavPath->PathPoints.Num() - 1];
+			bAutoRunning = true;
+				
+		}
+		
+	}
+}
+	
+
+
+void AAuraPlayerController::AbilityInputTagHeld()
+{
+	
+	if (CursorHit.bBlockingHit)
+	{
+		CachedDestination = CursorHit.ImpactPoint;
 	}
 }
 
